@@ -1,6 +1,5 @@
 import "@/global.css";
-import { Link } from "expo-router";
-import { FlatList, FlatListComponent, Image, Text, View } from "react-native";
+import { FlatList, Image, Text, View } from "react-native";
 import { styled } from "nativewind";
 import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 import images from "@/constants/images";
