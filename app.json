@@ -40,7 +40,7 @@
         }
       ],
       [
-        "expo-fonts",
+        "expo-font",
         {
           "fonts": [
             "./assets/fonts/JakartaSans-Regular.ttf",
