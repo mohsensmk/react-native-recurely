@@ -1,7 +1,6 @@
-import { View, Text, TouchableOpacity, Image } from "react-native";
-import React from "react";
-import { UPCOMING_SUBSCRIPTIONS } from "@/constants/data";
 import { formatCurrency } from "@/lib/utils";
+import React from "react";
+import { Image, Text, View } from "react-native";
 
 const UpcomingSubscriptionCard = ({
   name,
