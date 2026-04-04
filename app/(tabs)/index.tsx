@@ -1,27 +1,57 @@
-import "@/global.css";
-import { FlatList, Image, Text, View } from "react-native";
-import { styled } from "nativewind";
-import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
-import images from "@/constants/images";
+import ListHeading from "@/components/ListHeading";
+import SubscriptionCard from "@/components/SubscriptionCard";
+import UpcomingSubscriptionCard from "@/components/UpcomingSubscriptionCard";
 import {
   HOME_BALANCE,
   HOME_SUBSCRIPTIONS,
-  HOME_USER,
   UPCOMING_SUBSCRIPTIONS,
 } from "@/constants/data";
 import { icons } from "@/constants/icons";
+import images from "@/constants/images";
+import "@/global.css";
 import { formatCurrency } from "@/lib/utils";
+import { useUser } from "@clerk/expo";
 import dayjs from "dayjs";
-import ListHeading from "@/components/ListHeading";
-import UpcomingSubscriptionCard from "@/components/UpcomingSubscriptionCard";
-import SubscriptionCard from "@/components/SubscriptionCard";
-import { useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { styled } from "nativewind";
+import { useCallback, useMemo, useState } from "react";
+import { FlatList, Image, Text, View } from "react-native";
+import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 
 const SafeAreaView = styled(RNSafeAreaView);
 export default function App() {
+  const { user } = useUser();
   const [expandedSubscriptionId, setExpandedSubscriptionId] = useState<
     string | null
   >(null);
+
+  const displayName = useMemo(() => {
+    return (
+      user?.fullName ||
+      user?.firstName ||
+      user?.username ||
+      user?.primaryEmailAddress?.emailAddress ||
+      "Subscriber"
+    );
+  }, [user]);
+
+  const avatarSource = useMemo(() => {
+    if (!user?.imageUrl) {
+      return images.avatar;
+    }
+
+    const version =
+      user.updatedAt instanceof Date ? user.updatedAt.getTime() : Date.now();
+
+    return { uri: `${user.imageUrl}?v=${version}` };
+  }, [user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void user?.reload();
+    }, [user]),
+  );
+
   return (
     <SafeAreaView className="flex-1 p-5 bg-background">
       <FlatList
@@ -29,8 +59,8 @@ export default function App() {
           <>
             <View className="home-header">
               <View className="home-user">
-                <Image source={images.avatar} className="home-avatar" />
-                <Text className="home-user-name">{HOME_USER.name}</Text>
+                <Image source={avatarSource} className="home-avatar" />
+                <Text className="home-user-name">{displayName}</Text>
               </View>
 
               <Image source={icons.add} className="home-add-icon" />
