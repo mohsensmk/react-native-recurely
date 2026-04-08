@@ -1,8 +1,9 @@
 import { useAuth, useSignUp } from "@clerk/expo";
 import { clsx } from "clsx";
-import { Link, useRouter } from "expo-router";
+import { type Href, Link, useRouter } from "expo-router";
 import { styled } from "nativewind";
 import { useMemo, useState } from "react";
+import { usePostHog } from "posthog-react-native";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -73,6 +74,7 @@ const SignUp = () => {
   const router = useRouter();
   const { isSignedIn } = useAuth();
   const { signUp, fetchStatus } = useSignUp();
+  const posthog = usePostHog();
 
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
@@ -131,6 +133,9 @@ const SignUp = () => {
     });
 
     if (error) {
+      posthog.capture("sign_up_failed", {
+        error_message: getErrorMessage(error),
+      });
       setFormErrors({
         emailAddress: getFirstFieldMessage(error, "email_address"),
         password: getFirstFieldMessage(error, "password"),
@@ -155,6 +160,9 @@ const SignUp = () => {
     });
 
     if (error) {
+      posthog.capture("email_verification_failed", {
+        error_message: getErrorMessage(error),
+      });
       setFormErrors({
         code: getFirstFieldMessage(error, "code"),
         global: getErrorMessage(error),
@@ -163,8 +171,27 @@ const SignUp = () => {
     }
 
     if (signUp.status === "complete") {
-      await signUp.finalize();
-      router.replace("/(tabs)");
+      posthog.identify(emailAddress.trim().toLowerCase(), {
+        $set: { email: emailAddress.trim().toLowerCase() },
+        $set_once: { sign_up_date: new Date().toISOString() },
+      });
+      posthog.capture("user_signed_up", {
+        email: emailAddress.trim().toLowerCase(),
+      });
+      await signUp.finalize({
+        navigate: ({ session, decorateUrl }) => {
+          if (session?.currentTask) {
+            return;
+          }
+
+          const url = decorateUrl("/(tabs)");
+          if (url.startsWith("http")) {
+            return;
+          }
+
+          router.replace(url as Href);
+        },
+      });
       return;
     }
 

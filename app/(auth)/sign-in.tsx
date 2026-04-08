@@ -1,8 +1,9 @@
 import { useSignIn } from "@clerk/expo";
 import { clsx } from "clsx";
-import { Link, useRouter } from "expo-router";
+import { type Href, Link, useRouter } from "expo-router";
 import { styled } from "nativewind";
 import { useMemo, useState } from "react";
+import { usePostHog } from "posthog-react-native";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -71,13 +72,20 @@ const getFirstFieldMessage = (
 const SignIn = () => {
   const router = useRouter();
   const { signIn, fetchStatus } = useSignIn();
+  const posthog = usePostHog();
 
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [formErrors, setFormErrors] = useState<FormErrors>({});
 
-  const isSecondFactorStep = signIn.status === "needs_client_trust";
+  const supportsEmailCodeSecondFactor = signIn.supportedSecondFactors.some(
+    (factor) => factor.strategy === "email_code",
+  );
+  const isSecondFactorStep =
+    (signIn.status === "needs_second_factor" ||
+      signIn.status === "needs_client_trust") &&
+    supportsEmailCodeSecondFactor;
 
   const canSubmitCredentials = useMemo(() => {
     return (
@@ -114,8 +122,20 @@ const SignIn = () => {
   };
 
   const finalizeAndRoute = async () => {
-    await signIn.finalize();
-    router.replace("/(tabs)");
+    await signIn.finalize({
+      navigate: ({ session, decorateUrl }) => {
+        if (session?.currentTask) {
+          return;
+        }
+
+        const url = decorateUrl("/(tabs)");
+        if (url.startsWith("http")) {
+          return;
+        }
+
+        router.replace(url as Href);
+      },
+    });
   };
 
   const handleSubmit = async () => {
@@ -129,6 +149,9 @@ const SignIn = () => {
     });
 
     if (error) {
+      posthog.capture("sign_in_failed", {
+        error_message: getErrorMessage(error),
+      });
       setFormErrors({
         emailAddress:
           getFirstFieldMessage(error, "identifier") ||
@@ -140,18 +163,34 @@ const SignIn = () => {
     }
 
     if (signIn.status === "complete") {
+      const userId = signIn.createdSessionId ?? emailAddress.trim().toLowerCase();
+      posthog.identify(userId, {
+        $set: { email: emailAddress.trim().toLowerCase() },
+        $set_once: { first_sign_in_date: new Date().toISOString() },
+      });
+      posthog.capture("user_signed_in", {
+        email: emailAddress.trim().toLowerCase(),
+      });
       await finalizeAndRoute();
       return;
     }
 
-    if (signIn.status === "needs_client_trust") {
+    if (
+      (signIn.status === "needs_client_trust" ||
+        signIn.status === "needs_second_factor") &&
+      supportsEmailCodeSecondFactor
+    ) {
       await signIn.mfa.sendEmailCode();
       setFormErrors({});
       return;
     }
 
     setFormErrors({
-      global: "Additional verification is required. Please continue.",
+      global:
+        signIn.status === "needs_client_trust" ||
+        signIn.status === "needs_second_factor"
+          ? "Your account requires a second factor that is not available in this flow."
+          : "Additional verification is required. Please continue.",
     });
   };
 
@@ -167,6 +206,10 @@ const SignIn = () => {
       code: verificationCode,
     });
     if (error) {
+      posthog.capture("sign_in_failed", {
+        error_message: getErrorMessage(error),
+        step: "email_verification",
+      });
       setFormErrors({
         code: getFirstFieldMessage(error, "code"),
         global: getErrorMessage(error),
@@ -175,6 +218,17 @@ const SignIn = () => {
     }
 
     if (signIn.status === "complete") {
+      const userId = signIn.createdSessionId ?? emailAddress.trim().toLowerCase();
+      posthog.identify(userId, {
+        $set: { email: emailAddress.trim().toLowerCase() },
+      });
+      posthog.capture("email_verification_submitted", {
+        email: emailAddress.trim().toLowerCase(),
+      });
+      posthog.capture("user_signed_in", {
+        email: emailAddress.trim().toLowerCase(),
+        method: "email_verification",
+      });
       await finalizeAndRoute();
       return;
     }
@@ -264,8 +318,16 @@ const SignIn = () => {
 
                 <Pressable
                   className="auth-secondary-button"
-                  onPress={() => signIn.mfa.sendEmailCode()}
-                  disabled={fetchStatus === "fetching"}
+                  onPress={() => {
+                    if (!supportsEmailCodeSecondFactor) {
+                      return;
+                    }
+
+                    void signIn.mfa.sendEmailCode();
+                  }}
+                  disabled={
+                    fetchStatus === "fetching" || !supportsEmailCodeSecondFactor
+                  }
                 >
                   <Text className="auth-secondary-button-text">
                     Resend code
